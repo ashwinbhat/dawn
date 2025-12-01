@@ -91,6 +91,10 @@ sample("HelloTriangle") {
   sources = [ "HelloTriangle.cpp" ]
 }
 
+sample("HelloMesh") {
+  sources = [ "HelloMesh.cpp" ]
+}
+
 sample("ComputeBoids") {
   sources = [ "ComputeBoids.cpp" ]
 }

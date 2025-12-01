@@ -94,6 +94,12 @@ Sample(
 )
 
 Sample(
+    NAME HelloMesh
+    ENABLE_EMSCRIPTEN
+    SOURCES "HelloMesh.cpp" "Sphere.cpp"
+)
+
+Sample(
     NAME ComputeBoids
     ENABLE_EMSCRIPTEN
     SOURCES "ComputeBoids.cpp"
