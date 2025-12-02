@@ -137,6 +137,10 @@
 	path = third_party/abseil-cpp
 	url = https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp
 	gclient-condition = dawn_standalone
+[submodule "third_party/materialx"]
+	path = third_party/materialx
+	url = https://github.com/autodesk-forks/MaterialX.git
+	gclient-condition = dawn_standalone
 [submodule "third_party/dxc"]
 	path = third_party/dxc
 	url = https://chromium.googlesource.com/external/github.com/microsoft/DirectXShaderCompiler

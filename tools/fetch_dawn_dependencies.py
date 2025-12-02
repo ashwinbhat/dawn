@@ -106,6 +106,7 @@ def main(args):
         'third_party/libprotobuf-mutator/src',
         'third_party/protobuf',
         'third_party/markupsafe',
+        'third_party/materialx',
         'third_party/glslang/src',
         'third_party/google_benchmark/src',
         'third_party/googletest',

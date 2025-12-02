@@ -120,3 +120,21 @@ Sample(
     NAME ManualSurfaceTest
     SOURCES "ManualSurfaceTest.cpp"
 )
+
+###############################################################################
+# MaterialX sample (only built when DAWN_USE_MATERIALX is enabled)
+###############################################################################
+if (DAWN_USE_MATERIALX AND TARGET MaterialXCore)
+    add_executable(MaterialXTest "MaterialXTest.cpp")
+    target_link_libraries(MaterialXTest PRIVATE 
+        MaterialXCore
+        MaterialXFormat
+    )
+    common_compile_options(MaterialXTest)
+    
+    # MaterialX requires exceptions - enable them for this sample
+    target_compile_options(MaterialXTest PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fexceptions>
+    )
+endif()

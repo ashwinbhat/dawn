@@ -354,6 +354,11 @@ deps = {
     'condition': 'dawn_standalone',
   },
 
+  'third_party/materialx': {
+    'url': '{github_git}/autodesk-forks/MaterialX@299dd4cb8b7ec31d496e7d4651e9d3e471dba442',
+    'condition': 'dawn_standalone',
+  },
+
   'third_party/dxc': {
     'url': '{chromium_git}/external/github.com/microsoft/DirectXShaderCompiler@3f85295cfc982e5447f9faaa36f345366faca11d',
   },

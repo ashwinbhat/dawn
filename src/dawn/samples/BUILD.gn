@@ -112,3 +112,6 @@ if (dawn_supports_glfw_for_windowing) {
     sources = [ "DawnInfo.cpp" ]
   }
 }
+
+# Note: MaterialXTest sample is only available in the CMake build
+# since MaterialX uses CMake. See src/dawn/samples/CMakeLists.txt

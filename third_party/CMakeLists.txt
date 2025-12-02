@@ -169,6 +169,33 @@ if (NOT TARGET glfw AND DAWN_USE_GLFW)
     add_subdirectory(${DAWN_GLFW_DIR} "${CMAKE_CURRENT_BINARY_DIR}/glfw")
 endif()
 
+if (NOT TARGET MaterialXCore AND DAWN_USE_MATERIALX)
+    set(MATERIALX_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_VIEWER OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GRAPH_EDITOR OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_GLSL ON CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_OSL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_MDL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_RENDER OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_INSTALL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_CONTRIB ON CACHE BOOL "" FORCE)
+
+    message(STATUS "Dawn: using MaterialX at ${DAWN_MATERIALX_DIR}")
+    add_subdirectory(${DAWN_MATERIALX_DIR} "${CMAKE_CURRENT_BINARY_DIR}/materialx")
+    
+    # MaterialX requires exceptions - enable them for MaterialX targets
+    get_property(MATERIALX_TARGETS DIRECTORY ${DAWN_MATERIALX_DIR} PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target ${MATERIALX_TARGETS})
+        if(TARGET ${target})
+            target_compile_options(${target} PRIVATE
+                $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+                $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fexceptions>
+            )
+        endif()
+    endforeach()
+endif()
+
 if (DAWN_BUILD_PROTOBUF AND NOT TARGET libprotobuf-mutator)
     message(STATUS "Dawn: using LPM at ${DAWN_LPM_DIR}")
     include("libprotobuf-mutator/BUILD.cmake")
