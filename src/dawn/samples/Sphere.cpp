@@ -1,5 +1,7 @@
+#define _USE_MATH_DEFINES
 #include "Sphere.h"
 #include <cmath>
+#include <cstdint>
 #include <random>
 #include <cassert>
 

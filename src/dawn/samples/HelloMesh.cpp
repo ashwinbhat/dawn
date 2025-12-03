@@ -26,6 +26,9 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
+#define _USE_MATH_DEFINES
+#include <cmath>
+#include <cstdint>
 #include "Sphere.h"
 #include "dawn/samples/SampleUtils.h"
 
@@ -65,7 +68,7 @@ class HelloMeshSample : public SampleBase {
         vertexBuffer = dawn::utils::CreateBufferFromData(device, mesh.vertices.data(), mesh.vertices.size() * stride * sizeof(float),
                                                          wgpu::BufferUsage::Vertex);
 
-        indexBuffer  = dawn::utils::CreateBufferFromData(device, mesh.indices.data(), mesh.indices.size() * sizeof(u_int16_t),
+        indexBuffer  = dawn::utils::CreateBufferFromData(device, mesh.indices.data(), mesh.indices.size() * sizeof(uint16_t),
                                                          wgpu::BufferUsage::Index);
     
         primitveCount = mesh.indices.size();
