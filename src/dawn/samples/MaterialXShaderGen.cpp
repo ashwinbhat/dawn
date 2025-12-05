@@ -35,13 +35,48 @@
 // 4. Use Dawn to compile and validate the WGSL shaders
 //
 
-// Standard library includes (must come first)
-#include <algorithm>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <iomanip>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+#include <MaterialXCore/Document.h>
+#include <MaterialXFormat/Util.h>
+#include <MaterialXFormat/XmlIo.h>
+#include <MaterialXGenShader/GenContext.h>
+#include <MaterialXGenShader/Shader.h>
+#include <MaterialXGenShader/Util.h>
+#include <MaterialXGenGlsl/WgslShaderGenerator.h>
+
+#include <glslang/Public/ResourceLimits.h>
+#include <glslang/Public/ShaderLang.h>
+#include <SPIRV/GlslangToSpv.h>
+
+#include "dawn/samples/SampleUtils.h"
+#include "dawn/utils/WGPUHelpers.h"
+
+#include "tint/tint.h"
+#include "src/tint/lang/wgsl/inspector/inspector.h"
+#include "src/tint/lang/wgsl/reader/reader.h"
+#include "src/tint/utils/diagnostic/source.h"
+#include "src/tint/utils/diagnostic/formatter.h"
+#include "src/tint/utils/text/styled_text_printer.h"
+#include "src/tint/cmd/common/helper.h"
+#include <string>
+#include <vector>
+#include <sstream>
+#include <fstream>
+#include <iomanip>
 
 #ifdef _WIN32
 #include <direct.h>  // for _mkdir on Windows
@@ -65,12 +100,18 @@
 #include <glslang/Public/ShaderLang.h>
 #include <SPIRV/GlslangToSpv.h>
 
-// Tint API for SPIRV to WGSL
-#include "tint/tint.h"
-
-// Dawn includes
+// Dawn includes (include before Tint to avoid conflicts)
 #include "dawn/samples/SampleUtils.h"
 #include "dawn/utils/WGPUHelpers.h"
+
+// Tint API for SPIRV to WGSL
+#include "tint/tint.h"
+#include "src/tint/lang/wgsl/inspector/inspector.h"
+#include "src/tint/lang/wgsl/reader/reader.h"
+#include "src/tint/utils/diagnostic/source.h"
+#include "src/tint/utils/diagnostic/formatter.h"
+#include "src/tint/utils/text/styled_text_printer.h"
+#include "src/tint/cmd/common/helper.h"
 
 namespace mx = MaterialX;
 
@@ -98,7 +139,11 @@ bool CreateDirectoryIfNeeded(const std::string& path) {
     std::string normalizedPath = path;
 #ifdef _WIN32
     // Replace forward slashes with backslashes on Windows
-    std::replace(normalizedPath.begin(), normalizedPath.end(), '/', '\\');
+    for (size_t i = 0; i < normalizedPath.length(); ++i) {
+        if (normalizedPath[i] == '/') {
+            normalizedPath[i] = '\\';
+        }
+    }
     
     // Check if directory exists
     if (_access(normalizedPath.c_str(), 0) == 0) {
@@ -160,6 +205,155 @@ bool SaveShaderToFile(const std::string& filePath, const std::string& shaderCode
     }
     
     return true;
+}
+
+//------------------------------------------------------------------------------
+// Helper: Escape JSON string
+//------------------------------------------------------------------------------
+std::string EscapeJsonString(const std::string& str) {
+    std::ostringstream escaped;
+    for (char c : str) {
+        switch (c) {
+            case '"':  escaped << "\\\""; break;
+            case '\\': escaped << "\\\\"; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0') 
+                            << static_cast<int>(c);
+                } else {
+                    escaped << c;
+                }
+                break;
+        }
+    }
+    return escaped.str();
+}
+
+//------------------------------------------------------------------------------
+// Helper: Convert ResourceBinding to JSON string
+//------------------------------------------------------------------------------
+std::string ResourceBindingToJson(const tint::inspector::ResourceBinding& binding) {
+    std::ostringstream json;
+    json << "{\n";
+    json << "  \"binding\": " << binding.binding << ",\n";
+    json << "  \"group\": " << binding.bind_group << ",\n";
+    json << "  \"resource_type\": \"" << tint::cmd::ResourceTypeToString(binding.resource_type) << "\",\n";
+    json << "  \"size\": " << binding.size << ",\n";
+    json << "  \"size_no_padding\": " << binding.size_no_padding << ",\n";
+    
+    if (binding.array_size.has_value()) {
+        json << "  \"array_size\": " << binding.array_size.value() << ",\n";
+    }
+    
+    json << "  \"dimension\": \"" << tint::cmd::TextureDimensionToString(binding.dim) << "\",\n";
+    json << "  \"sampled_kind\": \"" << tint::cmd::SampledKindToString(binding.sampled_kind) << "\",\n";
+    json << "  \"image_format\": \"" << tint::cmd::TexelFormatToString(binding.image_format) << "\"";
+    
+    if (!binding.variable_name.empty()) {
+        json << ",\n  \"variable_name\": \"" << EscapeJsonString(binding.variable_name) << "\"";
+    }
+    
+    json << "\n}";
+    
+    return json.str();
+}
+
+//------------------------------------------------------------------------------
+// Helper: Extract and save binding information to JSON
+//------------------------------------------------------------------------------
+bool SaveBindingsToJson(const std::string& wgslCode, const std::string& outputPath) {
+    try {
+        // Parse WGSL code into a Program
+        tint::Source::File source_file("shader.wgsl", wgslCode);
+        tint::wgsl::reader::Options options;
+        tint::Program program = tint::wgsl::reader::Parse(&source_file, options);
+        
+        if (program.Diagnostics().ContainsErrors()) {
+            std::cerr << "  Error: Failed to parse WGSL for binding extraction:" << std::endl;
+            tint::diag::Formatter formatter;
+            auto formatted = formatter.Format(program.Diagnostics());
+            // Print formatted diagnostics to stderr
+            tint::StyledTextPrinter::Create(stderr)->Print(formatted);
+            return false;
+        }
+        
+        // Create inspector
+        tint::inspector::Inspector inspector(program);
+        if (inspector.has_error()) {
+            std::cerr << "  Error: Inspector error: " << inspector.error() << std::endl;
+            return false;
+        }
+        
+        // Get entry points
+        auto entryPoints = inspector.GetEntryPoints();
+        if (entryPoints.empty()) {
+            std::cerr << "  Warning: No entry points found in shader" << std::endl;
+            return false;
+        }
+        
+        // Build JSON
+        std::ostringstream json;
+        json << "{\n";
+        json << "  \"entry_points\": [\n";
+        
+        bool firstEntryPoint = true;
+        for (const auto& entryPoint : entryPoints) {
+            if (!firstEntryPoint) {
+                json << ",\n";
+            }
+            firstEntryPoint = false;
+            
+            json << "    {\n";
+            json << "      \"name\": \"" << EscapeJsonString(entryPoint.name) << "\",\n";
+            json << "      \"stage\": \"" << tint::cmd::EntryPointStageToString(entryPoint.stage) << "\",\n";
+            
+            // Get bindings for this entry point
+            auto bindings = inspector.GetResourceBindings(entryPoint.name);
+            if (inspector.has_error()) {
+                std::cerr << "  Warning: Error getting bindings for " << entryPoint.name 
+                          << ": " << inspector.error() << std::endl;
+            }
+            
+            json << "      \"bindings\": [\n";
+            bool firstBinding = true;
+            for (const auto& binding : bindings) {
+                if (!firstBinding) {
+                    json << ",\n";
+                }
+                firstBinding = false;
+                
+                // Indent the binding JSON
+                std::string bindingJson = ResourceBindingToJson(binding);
+                std::istringstream bindingStream(bindingJson);
+                std::string line;
+                bool firstLine = true;
+                while (std::getline(bindingStream, line)) {
+                    if (!firstLine) {
+                        json << "\n";
+                    }
+                    firstLine = false;
+                    json << "        " << line;
+                }
+            }
+            json << "\n      ]\n";
+            json << "    }";
+        }
+        
+        json << "\n  ]\n";
+        json << "}\n";
+        
+        // Save to file
+        return SaveShaderToFile(outputPath, json.str());
+        
+    } catch (const std::exception& e) {
+        std::cerr << "  Error: Exception while extracting bindings: " << e.what() << std::endl;
+        return false;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -554,6 +748,20 @@ public:
 #endif
                         if (SaveShaderToFile(wgslFileName, wgslCode)) {
                             std::cout << "    Saved WGSL shader to: " << wgslFileName << std::endl;
+                        }
+                        
+                        // Extract and save binding information to JSON
+                        std::string jsonFileName;
+#ifdef _WIN32
+                        jsonFileName = outputFolder + "\\" + elem->getName() + "_" + stageInfo.stageName + "_bindings.json";
+#else
+                        jsonFileName = outputFolder + "/" + elem->getName() + "_" + stageInfo.stageName + "_bindings.json";
+#endif
+                        
+                        if (SaveBindingsToJson(wgslCode, jsonFileName)) {
+                            std::cout << "    Saved binding information to: " << jsonFileName << std::endl;
+                        } else {
+                            std::cerr << "    Warning: Failed to extract binding information" << std::endl;
                         }
                     }
                     

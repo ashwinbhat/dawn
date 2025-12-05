@@ -155,6 +155,7 @@ if (DAWN_USE_MATERIALX AND TARGET MaterialXCore)
             glslang-default-resource-limits
             SPIRV
             tint_api
+            tint_cmd_common
         )
         
         # Include paths for tint (glslang includes come from the target)
