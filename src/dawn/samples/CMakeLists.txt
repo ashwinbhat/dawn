@@ -95,7 +95,7 @@ Sample(
 
 Sample(
     NAME HelloMesh
-    ENABLE_EMSCRIPTEN
+    ENABLE_EMSCRIPTEN USE_MATH_DEFINES
     SOURCES "HelloMesh.cpp" "Sphere.cpp"
 )
 
@@ -137,4 +137,42 @@ if (DAWN_USE_MATERIALX AND TARGET MaterialXCore)
         $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fexceptions>
     )
+    
+    ###########################################################################
+    # MaterialXShaderGen sample - generates shaders from MaterialX and compiles
+    # through GLSL -> SPIRV -> WGSL pipeline using glslang and Tint
+    ###########################################################################
+    if (TARGET MaterialXGenGlsl AND TARGET glslang AND TARGET SPIRV AND 
+        TINT_BUILD_SPV_READER AND TINT_BUILD_WGSL_WRITER)
+        add_executable(MaterialXShaderGen "MaterialXShaderGen.cpp")
+        target_link_libraries(MaterialXShaderGen PRIVATE 
+            dawn::dawn_sample_utils
+            MaterialXCore
+            MaterialXFormat
+            MaterialXGenShader
+            MaterialXGenGlsl
+            glslang
+            glslang-default-resource-limits
+            SPIRV
+            tint_api
+        )
+        
+        # Include paths for tint (glslang includes come from the target)
+        target_include_directories(MaterialXShaderGen PRIVATE
+            "${CMAKE_SOURCE_DIR}/src"
+            "${CMAKE_SOURCE_DIR}/include"
+        )
+        
+        common_compile_options(MaterialXShaderGen)
+        
+        # MaterialX requires exceptions - enable them for this sample
+        target_compile_options(MaterialXShaderGen PRIVATE
+            $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+            $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fexceptions>
+        )
+        
+        message(STATUS "Dawn: Building MaterialXShaderGen sample")
+    else()
+        message(STATUS "Dawn: Skipping MaterialXShaderGen sample (requires MaterialXGenGlsl, glslang, SPIRV, TINT_BUILD_SPV_READER, TINT_BUILD_WGSL_WRITER)")
+    endif()
 endif()

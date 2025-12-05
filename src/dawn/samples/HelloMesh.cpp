@@ -26,9 +26,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
-#define _USE_MATH_DEFINES
-#include <cmath>
-#include <cstdint>
 #include "Sphere.h"
 #include "dawn/samples/SampleUtils.h"
 
@@ -36,7 +33,7 @@
 #include "dawn/utils/WGPUHelpers.h"
 
 #define _SPHERE_
-int primitveCount = 0;
+int primitiveCount = 0;
 class HelloMeshSample : public SampleBase {
   public:
     using SampleBase::SampleBase;
@@ -65,13 +62,13 @@ class HelloMeshSample : public SampleBase {
             std::cout << "first vertex uv: (" << mesh.vertices[6] << ", " << mesh.vertices[7] << ")\n";
         }
 
-        vertexBuffer = dawn::utils::CreateBufferFromData(device, mesh.vertices.data(), mesh.vertices.size() * stride * sizeof(float),
+        vertexBuffer = dawn::utils::CreateBufferFromData(device, mesh.vertices.data(), mesh.vertices.size() * sizeof(float),
                                                          wgpu::BufferUsage::Vertex);
 
         indexBuffer  = dawn::utils::CreateBufferFromData(device, mesh.indices.data(), mesh.indices.size() * sizeof(uint16_t),
                                                          wgpu::BufferUsage::Index);
     
-        primitveCount = mesh.indices.size();
+        primitiveCount = mesh.indices.size();
     #else // triangle
         // float4 position, float3 normal
         static const float vertexData[] = {
@@ -160,7 +157,7 @@ class HelloMeshSample : public SampleBase {
             pass.SetPipeline(pipeline);
             pass.SetVertexBuffer(0, vertexBuffer);
             pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint16);
-            pass.DrawIndexed(primitveCount);
+            pass.DrawIndexed(primitiveCount);
             pass.End();
         }
 
