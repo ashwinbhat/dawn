@@ -36,10 +36,20 @@
 //
 
 // Standard library includes (must come first)
+#include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifdef _WIN32
+#include <direct.h>  // for _mkdir on Windows
+#include <io.h>      // for _access on Windows
+#else
+#include <sys/stat.h>  // for mkdir on Unix
+#include <unistd.h>    // for access on Unix
+#endif
 
 // MaterialX includes
 #include <MaterialXCore/Document.h>
@@ -74,6 +84,82 @@ const char* ShaderStageToString(EShLanguage stage) {
         case EShLangCompute: return "Compute";
         default: return "Unknown";
     }
+}
+
+//------------------------------------------------------------------------------
+// Helper: Create directory if it doesn't exist (recursive)
+//------------------------------------------------------------------------------
+bool CreateDirectoryIfNeeded(const std::string& path) {
+    if (path.empty()) {
+        return true;  // Empty path means no output needed
+    }
+    
+    // Normalize path separators for current platform
+    std::string normalizedPath = path;
+#ifdef _WIN32
+    // Replace forward slashes with backslashes on Windows
+    std::replace(normalizedPath.begin(), normalizedPath.end(), '/', '\\');
+    
+    // Check if directory exists
+    if (_access(normalizedPath.c_str(), 0) == 0) {
+        return true;  // Directory already exists
+    }
+    
+    // Create parent directories first
+    size_t pos = normalizedPath.find_last_of("\\");
+    if (pos != std::string::npos && pos > 0) {
+        std::string parent = normalizedPath.substr(0, pos);
+        if (!CreateDirectoryIfNeeded(parent)) {
+            return false;
+        }
+    }
+    
+    // Create the directory
+    return _mkdir(normalizedPath.c_str()) == 0;
+#else
+    // Unix/Linux: use mkdir with mode 0755
+    struct stat info;
+    if (stat(normalizedPath.c_str(), &info) == 0) {
+        return S_ISDIR(info.st_mode);  // Already exists and is a directory
+    }
+    
+    // Create parent directories first
+    size_t pos = normalizedPath.find_last_of("/");
+    if (pos != std::string::npos && pos > 0) {
+        std::string parent = normalizedPath.substr(0, pos);
+        if (!CreateDirectoryIfNeeded(parent)) {
+            return false;
+        }
+    }
+    
+    // Create the directory
+    return mkdir(normalizedPath.c_str(), 0755) == 0;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// Helper: Save shader code to file
+//------------------------------------------------------------------------------
+bool SaveShaderToFile(const std::string& filePath, const std::string& shaderCode) {
+    if (filePath.empty()) {
+        return false;
+    }
+    
+    std::ofstream file(filePath);
+    if (!file.is_open()) {
+        std::cerr << "  Error: Failed to open file for writing: " << filePath << std::endl;
+        return false;
+    }
+    
+    file << shaderCode;
+    file.close();
+    
+    if (!file.good()) {
+        std::cerr << "  Error: Failed to write to file: " << filePath << std::endl;
+        return false;
+    }
+    
+    return true;
 }
 
 //------------------------------------------------------------------------------
@@ -240,12 +326,23 @@ mx::DocumentPtr CreateSampleMaterialXDocument() {
 //------------------------------------------------------------------------------
 class MaterialXShaderGenSample {
 public:
-    bool Run(const std::string& libraryPath, const std::string& materialXFile = "") {
+    bool Run(const std::string& libraryPath, const std::string& materialXFile = "", const std::string& outputFolder = "shader_output") {
         std::cout << "=== MaterialX Shader Generation Pipeline ===" << std::endl;
         std::cout << std::endl;
 
         // Initialize Tint
         tint::Initialize();
+
+        // Create output directory if specified
+        if (!outputFolder.empty()) {
+            std::cout << "Creating output directory: " << outputFolder << std::endl;
+            if (!CreateDirectoryIfNeeded(outputFolder)) {
+                std::cerr << "Warning: Failed to create output directory: " << outputFolder << std::endl;
+                std::cerr << "  Shaders will not be saved to disk." << std::endl;
+            } else {
+                std::cout << "  Output directory ready" << std::endl;
+            }
+        }
 
         bool success = true;
         
@@ -411,6 +508,18 @@ public:
                     }
                     std::cout << "    SPIRV generated: " << spirv.size() << " words" << std::endl;
                     
+                    // Save GLSL shader to file
+                    if (!outputFolder.empty()) {
+#ifdef _WIN32
+                        std::string glslFileName = outputFolder + "\\" + elem->getName() + "_" + stageInfo.stageName + ".glsl";
+#else
+                        std::string glslFileName = outputFolder + "/" + elem->getName() + "_" + stageInfo.stageName + ".glsl";
+#endif
+                        if (SaveShaderToFile(glslFileName, glslCode)) {
+                            std::cout << "    Saved GLSL shader to: " << glslFileName << std::endl;
+                        }
+                    }
+                    
                     // Step 3: Convert SPIRV to WGSL
                     std::cout << "    Converting SPIRV to WGSL..." << std::endl;
                     std::string wgslCode;
@@ -435,6 +544,18 @@ public:
                     }
                     std::cout << "    ..." << std::endl;
                     std::cout << "    ---" << std::endl;
+                    
+                    // Save WGSL shader to file
+                    if (!outputFolder.empty()) {
+#ifdef _WIN32
+                        std::string wgslFileName = outputFolder + "\\" + elem->getName() + "_" + stageInfo.stageName + ".wgsl";
+#else
+                        std::string wgslFileName = outputFolder + "/" + elem->getName() + "_" + stageInfo.stageName + ".wgsl";
+#endif
+                        if (SaveShaderToFile(wgslFileName, wgslCode)) {
+                            std::cout << "    Saved WGSL shader to: " << wgslFileName << std::endl;
+                        }
+                    }
                     
                     // Step 4: Validate with Dawn (if we have a device)
                     if (device_) {
@@ -491,13 +612,17 @@ public:
         materialXFile_ = file;
     }
     
+    void SetOutputFolder(const std::string& folder) {
+        outputFolder_ = folder;
+    }
+    
 private:
     bool SetupImpl() override {
         // Run the shader generation pipeline
         MaterialXShaderGenSample sample;
         sample.SetDevice(&device);
         
-        pipelineSuccess_ = sample.Run(libraryPath_, materialXFile_);
+        pipelineSuccess_ = sample.Run(libraryPath_, materialXFile_, outputFolder_);
         
         // Signal that we're done - we don't need to keep running
         return false;  // Return false to exit after setup
@@ -509,6 +634,7 @@ private:
     
     std::string libraryPath_;
     std::string materialXFile_;
+    std::string outputFolder_ = "shader_output";
     bool pipelineSuccess_ = false;
 };
 
@@ -523,6 +649,7 @@ int main(int argc, const char* argv[]) {
     // Default library path - use empty string to use MaterialX's default search path
     std::string libraryPath = "";
     std::string materialXFile = "";
+    std::string outputFolder = "shader_output";
     
     // Check for command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -531,11 +658,14 @@ int main(int argc, const char* argv[]) {
             libraryPath = arg.substr(17);
         } else if (arg.find("--file=") == 0 || arg.find("-f=") == 0) {
             materialXFile = arg.substr(arg.find("=") + 1);
+        } else if (arg.find("--output=") == 0 || arg.find("-o=") == 0) {
+            outputFolder = arg.substr(arg.find("=") + 1);
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0] << " [options] [materialx_file.mtlx]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --materialx-path=<path>  Path to MaterialX directory" << std::endl;
             std::cout << "  --file=<path>, -f=<path>  MaterialX file to process" << std::endl;
+            std::cout << "  --output=<path>, -o=<path> Output folder for shaders (default: shader_output)" << std::endl;
             std::cout << "  --help, -h                Show this help message" << std::endl;
             std::cout << std::endl;
             std::cout << "Examples:" << std::endl;
@@ -561,6 +691,7 @@ int main(int argc, const char* argv[]) {
     } else {
         std::cout << "Using built-in sample material" << std::endl;
     }
+    std::cout << "Output folder: " << outputFolder << std::endl;
     std::cout << std::endl;
     
     // Try to run with Dawn device for full validation
@@ -568,6 +699,7 @@ int main(int argc, const char* argv[]) {
         ShaderValidationApp app;
         app.SetLibraryPath(libraryPath);
         app.SetMaterialXFile(materialXFile);
+        app.SetOutputFolder(outputFolder);
         app.Run(0);  // Run with no delay - exits after setup
     } else {
         // If Dawn initialization fails, run without device validation
@@ -576,7 +708,7 @@ int main(int argc, const char* argv[]) {
         
         tint::Initialize();
         MaterialXShaderGenSample sample;
-        bool success = sample.Run(libraryPath, materialXFile);
+        bool success = sample.Run(libraryPath, materialXFile, outputFolder);
         tint::Shutdown();
         
         return success ? 0 : 1;
