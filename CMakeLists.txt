@@ -234,7 +234,7 @@ if (DAWN_BUILD_SAMPLES)
   endif()
 endif()
 
-option(TINT_BUILD_SPV_READER "Build the SPIR-V input reader" ${DAWN_ENABLE_VULKAN})
+option(TINT_BUILD_SPV_READER "Build the SPIR-V input reader" ON)
 option(TINT_BUILD_WGSL_READER "Build the WGSL input reader" ON)
 option(TINT_BUILD_GLSL_WRITER "Build the GLSL output writer" ${TINT_DEFAULT_GLSL})
 option(TINT_BUILD_GLSL_VALIDATOR "Build the GLSL output validator" ON)
